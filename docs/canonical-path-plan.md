@@ -574,7 +574,10 @@ matches the existing Display card's style.
 5. Repeats for End anchor.
 6. UI runs `findMatches` and shows the count and the list.
 7. User clicks "draw on map" and clicks 10-20 vertices along the
-   actual subway line. Presses Enter.
+   actual subway line. `u` undoes a misplaced vertex, `s` toggles
+   snap to candidate-track vertices. Presses Enter (or double-clicks
+   the final vertex) to commit. Alternatively, clicks "use
+   exemplar..." and picks a known-good matched trip. See section 4.6.
 8. The canonical path is stored and rendered as a heavy line over the
    matched corridor.
 9. User clicks "preview apply" - sees the would-be result.
@@ -592,6 +595,98 @@ matches the existing Display card's style.
   canonical commutes at a glance.
 - The active pair (the one being edited) renders with full opacity.
 - Disabled pairs render nothing on the map but stay in the list.
+
+### 4.6 Canonical-path authoring (click-to-define)
+
+The canonical path is what every matched trip is rewritten to follow,
+so authoring needs to be precise and reversible. Three input modes,
+all implemented in `ui/path-drawer.js` and rendered live by
+`ui/canonical-overlay.js`:
+
+#### Mode A - draw on map (primary)
+
+Click-to-add-vertex with a growing polyline preview and per-vertex undo.
+
+```
++------------------ Map ------------------+
+|                                          |
+|         o-----o-----o-----o ...          |  <- growing canonical path
+|                            \             |     (in pair's colour, dashed
+|                             o            |      until committed)
+|                              \           |
+|                  (anchor       o----+    |
+|                   circles                |
+|                   drawn at                |
+|                   each end)               |
++------------------------------------------+
+   [ click: add vertex   u: undo last
+     enter / dbl-click: commit   esc: cancel
+     s: toggle snap   space: pan ]
+```
+
+Behaviour:
+
+- Entering draw mode disables map click-handlers for selection.
+  Single-click *only* adds a vertex; double-click commits, mirroring
+  the Leaflet `Draw` plugin convention (we are not actually using
+  that plugin - it would be a heavy dependency for one tool).
+- Drag still pans the map. Mouse wheel still zooms.
+- The growing line is rendered as `L.polyline(latlngs, { dashArray })`
+  in the anchor pair's colour. Vertices are small `L.circleMarker`s
+  so the user can see where clicks landed.
+- `u` (and `Cmd/Ctrl+Z`) removes the last vertex. The undo buffer is
+  the in-progress vertex list itself - dropping the tail is enough.
+- `s` toggles snap-to-existing-vertex while drawing. When on, the
+  next click rounds to the nearest vertex of any candidate-match
+  track within 8 px (see decision 11). The cursor shows a small ring
+  when a snap target is in range. This is what makes "trace over the
+  best surface-GPS recording" feasible.
+- `Enter` or double-click commits the in-progress list into a new
+  `CanonicalPath` with `origin: "drawn"`. Esc clears the buffer and
+  exits draw mode without storing anything.
+- A minimum of 2 vertices is required to commit; the UI greys out the
+  commit affordance until that threshold is met.
+- Vertex count is shown live in the sidebar ("12 vertices, 1.84 km")
+  so the user knows whether they have enough detail.
+
+Editing an existing canonical path is the same flow: clicking
+`edit` on a stored canonical pre-loads the vertex list into the
+drawer so the user can append, delete-tail, or restart.
+
+#### Mode B - pick an exemplar trip
+
+For commutes where one of the matched trips already has clean
+above-ground GPS (e.g. a single sunny day where the train was on a
+viaduct the whole way), the user can adopt that trip's geometry
+verbatim:
+
+1. Press "use exemplar..." in the canonical-path section.
+2. Map enters pick mode; matched candidate polylines pulse.
+3. User clicks any one of them.
+4. `CanonicalPath` is built via `canonical-path.fromExemplarTrack(track)`
+   with `origin: "exemplar"` and `exemplarSourceId/Trackid` recorded so
+   the user can see later "this canonical came from `2026-W18.gpx /
+   trk_3`".
+5. The user can subsequently switch to draw mode to refine the
+   exemplar's geometry; refining converts the origin to `"drawn"`.
+
+#### Mode C - import GeoJSON LineString (stretch)
+
+Drop a `.geojson` file containing a single LineString feature.
+Coordinates are read as `[lon, lat]` per the GeoJSON spec, flipped to
+`[lat, lon]` to match the rest of the model, and stored with
+`origin: "imported"`. Implemented in step 6 (stretch) so users who
+already have hand-curated routes from another tool can bring them in.
+
+#### Storage and lifetime
+
+- A `CanonicalPath` is owned 1:1 by its `AnchorPair` (decision 4).
+- It persists in `editing-state.canonicalPaths` regardless of whether
+  any edits have been applied yet, so the user can author once and
+  re-apply after loading more weekly GPX files.
+- Editing the vertex list does *not* automatically re-apply existing
+  edits - the user explicitly re-runs "apply" after editing, so they
+  can see the new preview first.
 
 ---
 
@@ -756,82 +851,68 @@ hidden state that can drift.
 
 ---
 
-## 6. Open questions and tradeoffs
+## 6. Decisions
 
-These are judgement calls before code starts. My recommended default
-is bolded; the alternatives are listed for explicitness.
+These are locked at planning approval. Sections 1-5 and 7 assume them.
+A short rationale is recorded so future-us doesn't relitigate.
 
-1. **Overwrite vs sibling track.** **Default: overwrite + push EditOp**
-   so the original is restorable via undo. Sibling-track mode (keep
-   the original `trk` and add a `<trk><name>...canonicalized</name>`
-   sibling) is selectable per-apply via a checkbox in the apply card,
-   for users who want a side-by-side comparison in the exported file.
+1. **Replacement strategy: overwrite the matched track and push an
+   EditOp.** Undo restores the original. A per-apply "keep original as
+   sibling track" checkbox is *not* in scope for the first
+   implementation; if a user asks for side-by-side comparison in the
+   exported file we revisit then.
 
-2. **Single-segment vs multi-segment canonical.** **Default: single
-   segment** (one `<trkseg>` containing the canonical vertices). ARC
-   subway tracks already collapse to roughly one logical movement;
-   preserving multi-segment structure adds complexity without buying
-   anything. Multi-segment can be added later if a real use case shows
-   up (e.g. "canonical with intermediate stops" where each segment is
-   an inter-station leg).
+2. **Canonical segment structure: single `<trkseg>` per canonical
+   track.** ARC subway tracks already collapse to roughly one logical
+   movement and a single segment makes timing math trivial.
+   Multi-segment canonicals (one segment per inter-station leg) can be
+   layered on later if a concrete need shows up.
 
-3. **Chaining default aggressiveness.** **Default: chaining off, gap
-   180s when on.** The matcher exposes it per anchor pair so the user
-   opts in. We could make the default "on for transit-typed pairs"
-   based on `filters.includeTypes`, but that mixes filter semantics
-   with chaining semantics; better to keep them orthogonal.
+3. **Chaining default: off; user opts in per anchor pair, gap 180 s.**
+   Keeps filter semantics and chaining semantics orthogonal.
 
-4. **AnchorPair to CanonicalPath cardinality.** **Default: 1:1.** If
-   the user has alternate routes between the same two stations, they
-   make a second anchor pair with the same coordinates and a different
-   label. Going 1:N adds a "which canonical applies here?" decision at
-   apply time that we don't need yet.
+4. **AnchorPair <-> CanonicalPath cardinality: 1:1.** Alternate routes
+   between the same endpoints = make a second anchor pair with the
+   same coordinates and a different label. Going 1:N would force an
+   "which canonical applies here?" decision at apply time that we
+   don't need yet.
 
-5. **Drift detection.** When an op is in the stack and the user
-   re-imports a different version of the same source, should the op
-   try to re-apply? `EditOp.snapshot` includes a fingerprint
-   (`firstPoint`, `lastPoint`, point count, sha) for exactly this
-   case. **Default: reject re-apply on fingerprint mismatch, surface a
-   "stale edit" status, drop the op.** A more forgiving "try anyway"
-   mode can come later.
+5. **Drift detection: reject re-apply on fingerprint mismatch.**
+   `EditOp.snapshot` includes `{firstPoint, lastPoint, ptCount, sha}`.
+   On mismatch, surface a "stale edit" status and drop the op rather
+   than silently overwriting a divergent track.
 
-6. **Filenames.** **Default: `<orig>.canonicalized.gpx` when there are
-   edits, `<orig>.roundtrip.gpx` otherwise.** Keeps the current
-   round-trip behaviour intact and makes "what's changed" visible from
-   the file listing.
+6. **Export filenames:** `<orig>.canonicalized.gpx` when the source
+   has at least one edit op, `<orig>.roundtrip.gpx` otherwise. The
+   suffix is the at-a-glance signal that something was changed.
 
-7. **Persistence across reload.** **Default: session-only.** Matches
-   the rest of the app (the file API can't write back to disk anyway).
-   If we ever add localStorage persistence, it should hold anchor
-   pairs and canonical paths but *not* op stacks - ops should be
-   re-derived from "apply this canonical to current sources" on demand.
+7. **Persistence across reload: session-only.** Matches the rest of
+   the app (browser-only, no disk writes). If a future feature
+   persists state to localStorage, it stores anchor pairs and
+   canonical paths but *not* op stacks - ops are derivable from
+   "apply this canonical to current sources" on demand.
 
-8. **Reverse direction handling at apply time.** When the match is
-   `reverse`, we apply the canonical *reversed* so the spatial flow
-   matches the recorded direction. The robust endpoints already encode
-   direction (start = first inside-radius point, end = last inside-radius
-   point of the *direction the track was recorded in*), so reversing
-   the vertex list before interpolation is the entire fix.
+8. **Reverse direction:** when a match is `reverse`, reverse the
+   canonical vertex list before time interpolation so spatial flow
+   matches the recorded direction. The robust endpoints already
+   encode direction, so this is the entire fix.
 
-9. **Type after canonicalisation.** **Default: preserve original
-   `type` and `rawType`.** Some users may want the canonicalised track
-   to take the dominant type from the chain (e.g. force "metro" when
-   the chain was [walking, stationary, train]). Expose this as a
-   per-apply checkbox later if asked.
+9. **Type on canonicalised track: preserve original `type` and
+   `rawType`.** No automatic "promote to dominant chain type" - that
+   would be a separate per-apply opt-in if a user asks.
 
-10. **`extras` after canonicalisation.** Preserve `Track.extras`
-    verbatim. Drop `Segment.extras` since the segments are new. If
-    `Point.extras` ever becomes a thing, this rule needs revisiting.
+10. **`extras` handling:** preserve `Track.extras` verbatim. Drop
+    `Segment.extras` (segments are new). `Point.extras` doesn't exist
+    in the current model.
 
-11. **Vertex snap distance.** Authoring snap to existing track vertices
-    within 8 px (screen distance) is the easiest UX; pure-haversine
-    "within N meters" is awkward because it depends on zoom. Use
-    screen-pixel distance via Leaflet's `map.latLngToContainerPoint`.
+11. **Snap distance while drawing: screen-pixel distance, threshold 8
+    px.** Computed via Leaflet's `map.latLngToContainerPoint`.
+    Zoom-independent UX; haversine-meters snap is unintuitive when the
+    map is zoomed out.
 
-12. **Anchor circle drawing.** Use `L.circle([lat,lon], { radius })`,
-    *not* `L.circleMarker`, because the former scales with the map
-    (radius is in meters; this is what the user sees through the
-    slider).
+12. **Anchor circle rendering: `L.circle([lat,lon], { radius })`.**
+    Scales with the map in meters so the visual matches the slider.
+    `L.circleMarker` would lie about the matching radius.
 
 ---
 
