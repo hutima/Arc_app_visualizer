@@ -10,6 +10,11 @@ const EVT = {
   typesChanged: "types:changed",
   typeVisibility: "types:visibility",
   filtersChanged: "filters:changed",
+  // Editing-state events. The editing module emits these on this same bus
+  // so subscribers (layer-manager, sidebar) don't need a back-reference.
+  anchorsChanged: "anchors:changed",
+  canonicalChanged: "canonical:changed",
+  editsChanged: "edits:changed",
 };
 
 export function createStore() {
