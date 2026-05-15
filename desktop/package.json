@@ -1,0 +1,30 @@
+{
+  "name": "arc-app-visualizer-desktop",
+  "version": "0.1.0",
+  "description": "Self-contained desktop app for the ARC GPX Visualizer. Electron shell with a bundled SQLite store. The same code also runs as a Node HTTP server for headless use.",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "postinstall": "electron-rebuild -f -w better-sqlite3 || true",
+    "start": "electron .",
+    "dev": "electron .",
+    "rebuild:electron": "electron-rebuild -f -w better-sqlite3",
+    "rebuild:node": "npm rebuild better-sqlite3",
+    "ingest": "node ingest.js",
+    "serve": "node serve.js",
+    "init-db": "node db.js --init"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.8.10",
+    "better-sqlite3": "^11.5.0",
+    "leaflet": "^1.9.4"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
+    "electron": "^33.4.11"
+  }
+}
