@@ -1,39 +1,38 @@
-# Canonical-path module (future)
+# Canonical-path module
 
-This folder is the extension point for the bulk-edit feature described in the
-project brief: identify repeated trips between two geographic regions and
-collapse them onto a canonical path.
+Implements the bulk-edit feature described in `docs/canonical-path-plan.md`:
+identify repeated trips between two geographic regions and rewrite them onto
+a user-defined canonical path.
 
-## Inputs
+## Pieces
 
-- `store.listSources()` (read-only)
-- Computed `Trip` view: for each track, `{trackId, sourceId, type, start, end, bbox}`
-  where `start` and `end` are the first and last `Point` of the first and last
-  non-empty segment.
-- User-supplied: `start = {lat, lon, radiusMeters}` and `end = {lat, lon, radiusMeters}`.
+| File                       | Purpose                                                      |
+|----------------------------|--------------------------------------------------------------|
+| `geo.js`                   | haversine + polyline helpers (length, bbox, cumulative)      |
+| `trip-view.js`             | Trip-shaped views with underground-robust endpoint pick      |
+| `chaining.js`              | adjacent-track chaining for ARC's fragmented subway trips    |
+| `matcher.js`               | apply an `AnchorPair` to all sources -> `MatchCandidate[]`   |
+| `edit-ops.js`              | `applyOps`, `snapshotTrack`, fingerprinting for undo         |
+| `canonical-path.js`        | constructors and small utilities for `CanonicalPath`         |
+| `apply.js`                 | `(canonical, match) -> EditOp[]` with time interpolation     |
+| `road-snap.js`             | optional OSRM map-matching to snap a user-drawn path to OSM  |
+| `editing-state.js`         | state container: pairs, canonicals, op stack, effective src  |
+| `ui/map-picker.js`         | next-click point / track pickers                             |
+| `ui/canonical-overlay.js`  | anchor circles, match highlights, canonical preview          |
+| `ui/path-drawer.js`        | click-to-add-vertex with undo / snap / commit                |
+| `ui/canonical-card.js`     | sidebar card; ties everything together                       |
 
-## Algorithm (sketch)
+Decisions are documented and rationalised in `docs/canonical-path-plan.md`
+section 6. The map-picker, drawer, overlay, and card are wired together in
+`src/main.js`.
 
-1. Compute `Trip` for every track once; cache per `sourceId`.
-2. Filter trips whose `start.point` lies within `start.radiusMeters` of `start.center`
-   and whose `end.point` lies within `end.radiusMeters` of `end.center`. Use a
-   haversine helper; no projection needed.
-3. Group matches and offer a canonical-path candidate, e.g. the medoid trip
-   (the trip whose points have the smallest total distance to the others),
-   or a user-supplied path.
-4. Apply edits as `{type:"replaceTrackPoints", trackId, points}` operations.
-   Edits live in the store; the layer-manager re-renders on `filters:changed`.
+## OSM road snap
 
-## What's already in place
-
-- `Source`/`Track`/`Segment`/`Point` shape preserves original timestamps and
-  metadata, so canonical-path application can keep per-point time if desired.
-- The serializer respects `rawType` and preserves any `extras` nodes, so any
-  ARC extension elements present at import time survive the round trip.
-
-## What still needs to be added when implementing
-
-- A `geo.js` helper (haversine, point-in-circle).
-- An `editor-state.js` that records and reverts edit operations.
-- UI: two map pickers + radius sliders, "preview matches" overlay, apply button.
-- Per-source export with edits applied (already trivial via `serializeSource`).
+`road-snap.js` calls the public OSRM map-matching endpoint
+(`router.project-osrm.org`). On success the user-drawn vertex list is
+replaced with the snapped geometry; on any failure (rate limit, network,
+no match, AbortError) the canonical keeps the user-drawn polyline and a
+status message explains why. The endpoint is meant for development - point
+`opts.baseUrl` at a private OSRM instance for heavy use. Subway / metro /
+train / boat / airplane canonicals shouldn't be snapped (no road
+underneath); the UI gates the button on user discretion.

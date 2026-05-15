@@ -65,4 +65,86 @@
  * @property {[number,number,number,number]} bbox  [minLat,minLon,maxLat,maxLon]
  */
 
+/**
+ * @typedef {Object} Anchor
+ * @property {number} lat
+ * @property {number} lon
+ * @property {number} radiusMeters
+ * @property {string} [label]
+ */
+
+/**
+ * @typedef {Object} TripFilters
+ * @property {string[]} [includeTypes]
+ * @property {number[]} [weekdays]                  0..6 (Sun..Sat)
+ * @property {[number,number]} [hourRange]          [startHour, endHourExclusive] local time
+ */
+
+/**
+ * @typedef {Object} AnchorPair
+ * @property {string} id
+ * @property {string} [label]
+ * @property {Anchor} start
+ * @property {Anchor} end
+ * @property {boolean} bidirectional
+ * @property {boolean} chainFragments
+ * @property {number} [chainGapSec]
+ * @property {TripFilters} [filters]
+ * @property {string} [canonicalPathId]
+ * @property {boolean} enabled
+ * @property {number} createdAt
+ */
+
+/**
+ * @typedef {Object} CanonicalPath
+ * @property {string} id
+ * @property {string} anchorPairId
+ * @property {[number,number][]} vertices            ordered (lat, lon)
+ * @property {"drawn"|"exemplar"|"imported"|"road-snapped"} origin
+ * @property {string} [exemplarSourceId]
+ * @property {string} [exemplarTrackId]
+ * @property {[number,number][]} [preSnapVertices]   user-drawn copy preserved when snapped
+ * @property {number} updatedAt
+ */
+
+/**
+ * @typedef {Object} MatchCandidate
+ * @property {string} sourceId
+ * @property {string[]} trackIds                     1 for normal match, N for chains
+ * @property {Point} robustStart
+ * @property {Point} robustEnd
+ * @property {"forward"|"reverse"} direction
+ * @property {boolean} chained
+ * @property {number} startDistMeters
+ * @property {number} endDistMeters
+ * @property {string} [reason]
+ */
+
+/**
+ * @typedef {Object} TrackSnapshot
+ * @property {string} trackId
+ * @property {string} [name]
+ * @property {string} type
+ * @property {string} [rawType]
+ * @property {Segment[]} segments
+ * @property {Element[]} [extras]
+ * @property {number} [originalIndex]                position in source.tracks before edit
+ */
+
+/**
+ * @typedef {Object} EditOp
+ * @property {string} id
+ * @property {number} appliedAt
+ * @property {string} groupId
+ * @property {string} [anchorPairId]
+ * @property {string} [canonicalPathId]
+ * @property {"replaceTrackPoints"|"deleteTrack"|"insertTrack"} type
+ * @property {string} sourceId
+ * @property {string} [trackId]
+ * @property {Segment[]} [newSegments]
+ * @property {TrackSnapshot} [snapshot]
+ * @property {Track} [newTrack]
+ * @property {number} [insertAfterIndex]
+ */
+
 export const _doc = true; // module marker; importing for side-effect-free typedefs

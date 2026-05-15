@@ -148,6 +148,13 @@ export function createLayerManager(mapView) {
       }
     },
 
+    /** Re-render a source by removing + re-adding its layers. Cheap and
+        correct; used by the editing module when an edit op changes a track. */
+    refreshSource(source) {
+      this.removeSource(source.id);
+      this.addSource(source);
+    },
+
     /** Compute aggregate bounds across attached groups for fitBounds. */
     bounds() {
       const b = L.latLngBounds([]);
