@@ -1,0 +1,7 @@
+{
+  "name": "arc-app-visualizer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Marker file so the existing src/ ES modules can be imported by Node tooling under desktop/. The browser app does not depend on this file - it is served as static HTML.",
+  "type": "module"
+}

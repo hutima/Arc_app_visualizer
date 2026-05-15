@@ -33,7 +33,7 @@ export function createEditingState(store) {
 
     addAnchorPair(partial) {
       const pair = {
-        id: nextId("ap"),
+        id: partial.id || nextId("ap"),
         label: partial.label || "",
         start: { ...partial.start },
         end: { ...partial.end },
@@ -41,9 +41,9 @@ export function createEditingState(store) {
         chainFragments: !!partial.chainFragments,
         chainGapSec: partial.chainGapSec ?? 180,
         filters: partial.filters || undefined,
-        canonicalPathId: undefined,
+        canonicalPathId: partial.canonicalPathId || undefined,
         enabled: partial.enabled !== false,
-        createdAt: Date.now(),
+        createdAt: partial.createdAt || Date.now(),
       };
       anchorPairs.set(pair.id, pair);
       emit(store.EVT.anchorsChanged, { pairId: pair.id, kind: "added" });

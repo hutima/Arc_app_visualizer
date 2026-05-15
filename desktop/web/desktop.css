@@ -1,0 +1,42 @@
+/* Desktop-only additions on top of /styles/app.css. */
+
+.libRow {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto auto;
+  gap: 6px;
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.libRow:last-child { border-bottom: 0; }
+.libRow.loaded { color: var(--text); }
+.libRow.unloaded { color: var(--muted); }
+.libName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.libCounts { font-size: 11px; }
+.libToggleLoad, .libRemove {
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.libToggleLoad:hover { color: var(--text); }
+.libRemove:hover { color: var(--err); border-color: var(--err); }
+
+#dropOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 17, 21, 0.85);
+  color: var(--accent);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  z-index: 9999;
+  pointer-events: none;
+  border: 4px dashed var(--accent);
+}
+body.cp-dropping #dropOverlay { display: flex; }

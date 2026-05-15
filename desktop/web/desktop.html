@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ARC GPX Visualizer (Desktop)</title>
+  <meta name="theme-color" content="#0f1115" />
+  <link rel="icon" href="../../icons/icon-192.png" />
+
+  <link rel="stylesheet" href="./vendor/leaflet/leaflet.css" />
+  <script src="./vendor/leaflet/leaflet.js"></script>
+
+  <link rel="stylesheet" href="../../styles/app.css" />
+  <link rel="stylesheet" href="./desktop.css" />
+</head>
+<body>
+  <div class="app">
+    <aside id="sidebar">
+      <h1>ARC GPX Visualizer <span class="muted tiny" id="modeBadge"></span></h1>
+
+      <div class="card">
+        <h2>Server</h2>
+        <div id="serverInfo" class="muted tiny">connecting...</div>
+      </div>
+
+      <div class="card">
+        <h2>Library</h2>
+        <div id="libraryList"></div>
+        <div class="row" style="margin-top:8px;">
+          <button id="reloadLibraryBtn">Refresh</button>
+          <button id="fitBtn">Fit map</button>
+          <button id="clearLoadedBtn">Unload all</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button id="ingestBtn" class="primary">Import GPX...</button>
+          <span class="muted tiny">or drag .gpx files onto the window</span>
+        </div>
+        <input id="gpxUpload" type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml" multiple style="display:none" />
+      </div>
+
+      <div class="card">
+        <h2>Activity types</h2>
+        <div id="typeFilters"></div>
+      </div>
+
+      <div class="card">
+        <h2>Canonical paths</h2>
+        <div id="canonicalCard"></div>
+      </div>
+
+      <div class="card">
+        <h2>Display</h2>
+        <div class="row">
+          <label>line width <input id="optWeight" type="number" min="1" max="10" step="1" value="2"></label>
+          <label>opacity <input id="optOpacity" type="number" min="0.1" max="1" step="0.05" value="0.78"></label>
+        </div>
+        <div class="row" style="margin-top:6px;">
+          <label>max pts/seg <input id="optMaxPts" type="number" min="100" step="100" value="4000"></label>
+          <label><input id="optOmitSingle" type="checkbox"> omit single-point segs</label>
+        </div>
+        <div class="row" style="margin-top:6px;">
+          <label><input id="toggleWpt" type="checkbox" checked> show waypoints</label>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Export</h2>
+        <div class="row" style="flex-wrap:wrap;gap:6px">
+          <button id="exportMergedBtn">Merged GPX</button>
+          <button id="exportPerFileBtn">Loaded files</button>
+        </div>
+        <div class="muted tiny" style="margin-top:6px;">
+          Loaded-file export uses the in-memory effective sources (edits baked in).
+          Merged GPX exports the full DB.
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Status</h2>
+        <div id="statusBar"></div>
+      </div>
+    </aside>
+    <main id="map"></main>
+  </div>
+
+  <div id="dropOverlay">Drop .gpx files to import</div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
