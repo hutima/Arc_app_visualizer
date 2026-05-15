@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>GPX Lifelog Visualizer (Type Layers + Performance)</title>
+
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <!-- leaflet-image (exports tiles + vector overlays) -->
+  <script src="https://unpkg.com/leaflet-image@0.4.0/leaflet-image.js"></script>
+
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+  />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+  />
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    #app { display:grid; grid-template-columns: 420px 1fr; height: 100vh; }
+    #sidebar { border-right: 1px solid #ddd; padding: 14px; overflow:auto; }
+    #map { height: 100vh; width: 100%; }
+
+    h1 { font-size: 18px; margin: 0 0 10px; }
+    .muted { color:#666; font-size:.95rem; line-height:1.35; }
+    .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:10px; }
+    .box { border:1px solid #eee; border-radius:12px; padding:10px; margin-top:12px; }
+    label { font-weight:600; font-size:.95rem; display:block; margin-bottom:4px; }
+    input[type="text"], input[type="date"], input[type="number"] {
+      padding:8px; border:1px solid #ccc; border-radius:10px; width:100%; box-sizing:border-box;
+    }
+    input[type="file"] { width:100%; }
+    button { padding:10px 12px; border:1px solid #333; background:#fff; border-radius:12px; cursor:pointer; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .pill { display:inline-block; padding:2px 8px; border:1px solid #ddd; border-radius:999px; margin-left:6px; font-size:.85rem; color:#444; }
+
+    .status-ok { color:#0a6a2b; }
+    .status-warn { color:#8a5a00; }
+    .status-err { color:#a40000; }
+
+    .legendBox { border:1px solid #eee; border-radius:12px; padding:10px; max-height:340px; overflow:auto; }
+    .legendRow { display:flex; gap:10px; align-items:center; padding:6px 0; border-bottom:1px dashed #f0f0f0; }
+    .legendRow:last-child { border-bottom:none; }
+    .swatch { width:14px; height:14px; border-radius:3px; border:1px solid rgba(0,0,0,0.25); }
+    .right { margin-left:auto; }
+    .tiny { font-size:.9rem; }
+    .colorPick { width:42px; height:28px; padding:0; border:1px solid #ccc; border-radius:8px; background:#fff; }
+
+    .export-btn {
+      background:#ffffff; border:1px solid rgba(0,0,0,0.25); border-radius:10px; padding:8px 10px;
+      cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,0.15); font-family: inherit;
+    }
+
+    @media (max-width: 980px) {
+      #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+      #map { height: 65vh; }
+      #sidebar { height: 35vh; border-right:none; border-bottom:1px solid #ddd; }
+      .legendBox { max-height: 220px; }
+    }
+  </style>
+</head>
+
+<body>
+<div id="app">
+  <div id="sidebar">
+    <h1>GPX Lifelog Visualizer <span class="pill">type layers</span><span class="pill">performance mode</span></h1>
+    <div class="muted">
+      Works with <strong>Arc original</strong> and <strong>merged GPX</strong> as long as tracks remain separate (<span class="mono">&lt;trk&gt;</span> repeated).
+      Unlike the older version, this one renders <em>single-point segments</em> as dots, so “missing types” don’t vanish just because the segment is tiny.
+    </div>
+
+    <div class="box">
+      <label for="gpxFile">GPX file</label>
+      <input id="gpxFile" type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml" />
+    </div>
+
+    <div class="box">
+      <div class="row" style="margin-top:0;">
+        <div style="flex:1;">
+          <label for="startDate">Start date</label>
+          <input id="startDate" type="date" />
+        </div>
+        <div style="flex:1;">
+          <label for="endDate">End date</label>
+          <input id="endDate" type="date" />
+        </div>
+      </div>
+      <div class="muted" style="margin-top:6px;">Tracks are filtered by the first point’s <span class="mono">&lt;time&gt;</span> (per track).</div>
+    </div>
+
+    <div class="box">
+      <label for="omitTypes">Omitted types (comma-separated)</label>
+      <input id="omitTypes" type="text" value="unknown,bogus" />
+      <div class="muted" style="margin-top:6px;">Tip: omit <span class="mono">airplane</span> if it clutters things.</div>
+    </div>
+
+    <div class="box">
+      <div class="row" style="margin-top:0;">
+        <div style="flex:1;">
+          <label for="lineWidth">Line width</label>
+          <input id="lineWidth" type="number" min="1" max="10" step="1" value="2" />
+        </div>
+        <div style="flex:1;">
+          <label for="lineOpacity">Opacity</label>
+          <input id="lineOpacity" type="number" min="0.1" max="1.0" step="0.05" value="0.75" />
+        </div>
+      </div>
+
+      <div class="row">
+        <label style="display:flex; gap:10px; align-items:center; font-weight:600;">
+          <input id="perfMode" type="checkbox" />
+          Performance mode (downsample)
+        </label>
+        <label style="display:flex; gap:10px; align-items:center; font-weight:600;">
+          <input id="omitSinglePoint" type="checkbox" checked />
+          Omit single-point segments
+        </label>
+        <div style="flex:1;">
+          <label for="maxPoints" class="tiny">Max points per segment (when enabled)</label>
+          <input id="maxPoints" type="number" min="100" step="100" value="2000" />
+        </div>
+      </div>
+
+      <div class="row">
+        <label style="display:flex; gap:10px; align-items:center; font-weight:600;">
+          <input id="showWpt" type="checkbox" checked />
+          Show waypoints
+        </label>
+        <label style="display:flex; gap:10px; align-items:center; font-weight:600;">
+          <input id="clusterWpt" type="checkbox" checked />
+          Cluster waypoints
+        </label>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="renderBtn" disabled>Render</button>
+      <button id="clearBtn" disabled>Clear</button>
+    </div>
+
+    <div class="box">
+      <div><strong>Status</strong></div>
+      <div id="status" class="muted" style="margin-top:6px;">Select a GPX file.</div>
+      <div class="muted" style="margin-top:8px;">
+        Tracks: <span class="mono" id="trkCount">0</span>,
+        Segments: <span class="mono" id="segCount">0</span>,
+        Points: <span class="mono" id="ptCount">0</span>,
+        Waypoints: <span class="mono" id="wptCount">0</span>
+      </div>
+    </div>
+
+    <div class="box">
+      <div class="row" style="margin-top:0;">
+        <strong>Legend & Toggles</strong>
+        <span class="muted">Uncheck to hide a type. Adjust colors live.</span>
+      </div>
+      <div id="legend" class="legendBox"><span class="muted">Load a file to generate the legend.</span></div>
+    </div>
+
+    <div class="muted" style="margin-top:12px;">
+      Export button is on the map (top-right). If it fails, that’s your browser being “protective,” not your life being uninteresting.
+    </div>
+  </div>
+
+  <div id="map"></div>
+</div>
+
+<script>
+(() => {
+  // Default palette (you can override in UI per-type)
+  const BASE_COLORS = {
+    "walking": "#7EC850",
+    "hiking": "#5FAD41",
+    "running": "#98D77E",
+    "bus": "#FFA552",
+    "train": "#FFD66B",
+    "tram": "#FFCC4D",
+    "metro": "#FFE084",
+    "cablecar": "#FF7B32",
+    "funicular": "#FF8F66",
+    "skilift": "#FF9C70",
+    "airplane": "#A371E8",
+    "car": "#5A5A5A",
+    "taxi": "#6C6C6C",
+    "cycling": "#FFD27F",
+    "inlineskating": "#E07D8D",
+    "kayaking": "#76B7E0",
+    "swimming": "#5BA4C7",
+    "skiing": "#7FA2F3",
+    "boat": "#569AFF",
+    "stationary": "#7EC850"
+  };
+  const DEFAULT_COLOR = "#A8A8A8";
+
+  // Elements
+  const gpxFileEl = document.getElementById("gpxFile");
+  const startDateEl = document.getElementById("startDate");
+  const endDateEl = document.getElementById("endDate");
+  const omitTypesEl = document.getElementById("omitTypes");
+
+  const lineWidthEl = document.getElementById("lineWidth");
+  const lineOpacityEl = document.getElementById("lineOpacity");
+  const perfModeEl = document.getElementById("perfMode");
+  const omitSinglePointEl = document.getElementById("omitSinglePoint");
+  const maxPointsEl = document.getElementById("maxPoints");
+
+  const showWptEl = document.getElementById("showWpt");
+  const clusterWptEl = document.getElementById("clusterWpt");
+
+  const renderBtn = document.getElementById("renderBtn");
+  const clearBtn = document.getElementById("clearBtn");
+
+  const statusEl = document.getElementById("status");
+  const legendEl = document.getElementById("legend");
+
+  const trkCountEl = document.getElementById("trkCount");
+  const segCountEl = document.getElementById("segCount");
+  const ptCountEl = document.getElementById("ptCount");
+  const wptCountEl = document.getElementById("wptCount");
+
+  // Map
+  const map = L.map("map", { zoomSnap: 0.5, zoomDelta: 0.5, worldCopyJump: true });
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+    subdomains: "abcd",
+    maxZoom: 20,
+    crossOrigin: true
+  }).addTo(map);
+  map.setView([43.6532, -79.3832], 11);
+
+  // Per-type layers + waypoint layer
+  const typeLayers = new Map(); // type -> { group, color, enabled, countTracks, countSegs, countPts }
+  const trackRoot = L.layerGroup().addTo(map);
+
+  const wptCluster = L.markerClusterGroup();
+  const wptPlain = L.layerGroup();
+  let wptActiveLayer = null;
+
+  // Export control
+  const ExportControl = L.Control.extend({
+    options: { position: "topright" },
+    onAdd: function() {
+      const btn = L.DomUtil.create("button", "export-btn");
+      btn.type = "button";
+      btn.textContent = "Export Map";
+      L.DomEvent.disableClickPropagation(btn);
+      btn.addEventListener("click", () => {
+        try {
+          setStatus("Rendering export…", "status-ok");
+          // Prefer leaflet-image (captures tiles + vector overlays)
+          if (typeof leafletImage === "function") {
+            leafletImage(map, (err, canvas) => {
+              if (err) {
+                console.error(err);
+                setStatus("Export failed (leaflet-image error).", "status-warn");
+                return;
+              }
+              const link = document.createElement("a");
+              link.download = "map-export.png";
+              link.href = canvas.toDataURL("image/png");
+              link.click();
+              setStatus("Export downloaded.", "status-ok");
+            });
+            return;
+          }
+
+          // Fallback: html2canvas (may miss vector overlays in some browsers)
+          const container = map.getContainer();
+          html2canvas(container, { useCORS: true, backgroundColor: null }).then(canvas => {
+            const link = document.createElement("a");
+            link.download = "map-export.png";
+            link.href = canvas.toDataURL("image/png");
+            link.click();
+            setStatus("Export downloaded (fallback).", "status-ok");
+          }).catch(e => {
+            console.error(e);
+            setStatus("Export failed (fallback).", "status-warn");
+          });
+        } catch (e) {
+          console.error(e);
+          setStatus("Export failed.", "status-warn");
+        }
+      });
+      return btn;
+    }
+  });
+  map.addControl(new ExportControl());
+
+  function setStatus(msg, cls) {
+    statusEl.className = cls ? cls : "muted";
+    statusEl.textContent = msg;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+  }
+
+  function parseOmittedTypes() {
+    return new Set(
+      (omitTypesEl.value || "")
+        .split(",")
+        .map(s => s.trim().toLowerCase())
+        .filter(Boolean)
+    );
+  }
+
+  function parseDateOrNull(dateStr) {
+    if (!dateStr) return null;
+    const d = new Date(dateStr + "T00:00:00");
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function firstTrackTime(trackEl) {
+    const segs = Array.from(trackEl.getElementsByTagNameNS("*", "trkseg"));
+    for (const seg of segs) {
+      const pts = Array.from(seg.getElementsByTagNameNS("*", "trkpt"));
+      if (!pts.length) continue;
+      const first = pts[0];
+      const timeEl = Array.from(first.childNodes).find(n => n.nodeType === 1 && n.localName === "time");
+      if (timeEl && timeEl.textContent) {
+        const t = new Date(timeEl.textContent.trim());
+        if (!Number.isNaN(t.getTime())) return t;
+      }
+    }
+    return null;
+  }
+
+  function directChildText(parent, localName) {
+    const el = Array.from(parent.childNodes).find(n => n.nodeType === 1 && n.localName === localName);
+    return el ? (el.textContent || "").trim() : "";
+  }
+
+  function hashColor(str) {
+    // deterministic fallback color for unknown types
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    const r = (h >>> 16) & 255;
+    const g = (h >>> 8) & 255;
+    const b = h & 255;
+    // soften
+    const rr = Math.floor((r + 128) / 2);
+    const gg = Math.floor((g + 128) / 2);
+    const bb = Math.floor((b + 128) / 2);
+    return "#" + [rr, gg, bb].map(x => x.toString(16).padStart(2, "0")).join("");
+  }
+
+  function colorForType(t) {
+    const key = (t || "").toLowerCase();
+    return BASE_COLORS[key] || hashColor(key || "none") || DEFAULT_COLOR;
+  }
+
+  function downsampleLatLngs(latlngs, maxPoints) {
+    if (!maxPoints || latlngs.length <= maxPoints) return latlngs;
+    const step = Math.ceil(latlngs.length / maxPoints);
+    const out = [];
+    for (let i = 0; i < latlngs.length; i += step) out.push(latlngs[i]);
+    // ensure last point included
+    if (out[out.length - 1] !== latlngs[latlngs.length - 1]) out.push(latlngs[latlngs.length - 1]);
+    return out;
+  }
+
+  function toLatLngsFromSeg(segEl) {
+    const pts = Array.from(segEl.getElementsByTagNameNS("*", "trkpt"));
+    const latlngs = [];
+    for (const pt of pts) {
+      const lat = pt.getAttribute("lat");
+      const lon = pt.getAttribute("lon");
+      if (lat == null || lon == null) continue;
+      const la = Number(lat), lo = Number(lon);
+      if (!Number.isFinite(la) || !Number.isFinite(lo)) continue;
+      latlngs.push([la, lo]);
+    }
+    return latlngs;
+  }
+
+  async function readFileAsText(file) {
+    if (file.text) return await file.text();
+    return await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+      r.readAsText(file);
+    });
+  }
+
+  function parseXml(xmlText) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlText, "application/xml");
+    const err = doc.getElementsByTagName("parsererror")[0];
+    if (err) throw new Error(err.textContent.trim());
+    if (doc.documentElement.localName !== "gpx") throw new Error("Not a GPX file (root element is not <gpx>).");
+    return doc;
+  }
+
+  function clearAll() {
+    trackRoot.clearLayers();
+    typeLayers.clear();
+    legendEl.innerHTML = `<span class="muted">Load a file to generate the legend.</span>`;
+
+    if (wptActiveLayer) {
+      map.removeLayer(wptActiveLayer);
+      wptActiveLayer = null;
+    }
+    wptCluster.clearLayers();
+    wptPlain.clearLayers();
+
+    trkCountEl.textContent = "0";
+    segCountEl.textContent = "0";
+    ptCountEl.textContent = "0";
+    wptCountEl.textContent = "0";
+  }
+
+  function ensureTypeLayer(typeKey) {
+    if (typeLayers.has(typeKey)) return typeLayers.get(typeKey);
+    const color = colorForType(typeKey);
+    const group = L.layerGroup();
+    trackRoot.addLayer(group);
+    const entry = { group, color, enabled: true, countTracks: 0, countSegs: 0, countPts: 0 };
+    typeLayers.set(typeKey, entry);
+    return entry;
+  }
+
+  function rebuildLegend() {
+    if (!typeLayers.size) {
+      legendEl.innerHTML = `<span class="muted">No tracks rendered (check filters).</span>`;
+      return;
+    }
+
+    const rows = Array.from(typeLayers.entries())
+      .sort((a,b) => (b[1].countTracks - a[1].countTracks) || a[0].localeCompare(b[0]))
+      .map(([typeKey, info]) => {
+        const label = typeKey || "(none)";
+        const safeId = "t_" + btoa(unescape(encodeURIComponent(typeKey || "none"))).replaceAll("=", "");
+        return `
+          <div class="legendRow">
+            <input type="checkbox" class="typeToggle" data-type="${escapeHtml(typeKey)}" ${info.enabled ? "checked" : ""}>
+            <span class="swatch" style="background:${info.color}"></span>
+            <span class="mono">${escapeHtml(label)}</span>
+            <input type="color" class="colorPick" data-type="${escapeHtml(typeKey)}" value="${info.color}">
+            <span class="right muted tiny">
+              trk <span class="mono">${info.countTracks}</span>,
+              seg <span class="mono">${info.countSegs}</span>
+            </span>
+          </div>
+        `;
+      }).join("");
+
+    legendEl.innerHTML = rows;
+
+    // Wire toggles
+    for (const cb of Array.from(document.querySelectorAll(".typeToggle"))) {
+      cb.addEventListener("change", (e) => {
+        const t = e.target.getAttribute("data-type") || "";
+        const entry = typeLayers.get(t);
+        if (!entry) return;
+        entry.enabled = e.target.checked;
+        if (entry.enabled) trackRoot.addLayer(entry.group);
+        else trackRoot.removeLayer(entry.group);
+      });
+    }
+
+    // Wire color pickers (repaint existing layers)
+    for (const cp of Array.from(document.querySelectorAll(".colorPick"))) {
+      cp.addEventListener("input", (e) => {
+        const t = e.target.getAttribute("data-type") || "";
+        const entry = typeLayers.get(t);
+        if (!entry) return;
+        entry.color = e.target.value;
+
+        entry.group.eachLayer(layer => {
+          if (layer.setStyle) layer.setStyle({ color: entry.color });
+          if (layer.setStyle === undefined && layer.setStyle) { /* noop */ }
+        });
+
+        // Also update swatch for this row
+        const row = e.target.closest(".legendRow");
+        if (row) {
+          const sw = row.querySelector(".swatch");
+          if (sw) sw.style.background = entry.color;
+        }
+      });
+    }
+  }
+
+  function applyWaypointLayer() {
+    // remove existing
+    if (wptActiveLayer) map.removeLayer(wptActiveLayer);
+
+    if (!showWptEl.checked) {
+      wptActiveLayer = null;
+      return;
+    }
+
+    wptActiveLayer = clusterWptEl.checked ? wptCluster : wptPlain;
+    map.addLayer(wptActiveLayer);
+  }
+
+  function extractWaypoints(doc, start, end) {
+    const gpx = doc.documentElement;
+    const wpts = Array.from(gpx.getElementsByTagNameNS("*", "wpt"));
+
+    // If end date is provided, treat it as inclusive through 23:59:59 local.
+    const endInclusive = end ? new Date(end.getTime() + 24*60*60*1000 - 1) : null;
+
+    return wpts.map(w => {
+      const lat = Number(w.getAttribute("lat"));
+      const lon = Number(w.getAttribute("lon"));
+      const name = directChildText(w, "name");
+      const time = directChildText(w, "time");
+      const linkEl = Array.from(w.childNodes).find(n => n.nodeType === 1 && n.localName === "link");
+      const href = linkEl ? (linkEl.getAttribute("href") || "") : "";
+
+      // Date-range filter (based on <wpt><time>)
+      if ((start || endInclusive) && time) {
+        const t = new Date(time);
+        if (!Number.isNaN(t.getTime())) {
+          if (start && t < start) return null;
+          if (endInclusive && t > endInclusive) return null;
+        } else {
+          // If time is unparseable and a date filter is active, omit it.
+          return null;
+        }
+      } else if ((start || endInclusive) && !time) {
+        // If date filter is active but no waypoint time exists, omit it to honor the range.
+        return null;
+      }
+
+      return { lat, lon, name, time, href };
+    }).filter(x => x && Number.isFinite(x.lat) && Number.isFinite(x.lon));
+  }
+
+  function addWaypointsToMap(wpts) {
+    wptCluster.clearLayers();
+    wptPlain.clearLayers();
+
+    for (const w of wpts) {
+      const marker = L.circleMarker([w.lat, w.lon], {
+        radius: 3,
+        weight: 1,
+        color: "#ffffff",
+        fillColor: "#ffffff",
+        fillOpacity: 0.65,
+        opacity: 0.8
+      });
+      const lines = [];
+      if (w.name) lines.push(`<strong>${escapeHtml(w.name)}</strong>`);
+      if (w.time) lines.push(`<div class="mono">${escapeHtml(w.time)}</div>`);
+      if (w.href) lines.push(`<div class="mono">${escapeHtml(w.href)}</div>`);
+      if (lines.length) marker.bindPopup(lines.join(""));
+      wptPlain.addLayer(marker);
+      wptCluster.addLayer(marker);
+    }
+
+    wptCountEl.textContent = String(wpts.length);
+    applyWaypointLayer();
+  }
+
+  async function render() {
+    const file = gpxFileEl.files && gpxFileEl.files[0];
+    if (!file) return;
+
+    setStatus("Reading GPX…", "status-ok");
+    const txt = await readFileAsText(file);
+
+    setStatus("Parsing GPX…", "status-ok");
+    const doc = parseXml(txt);
+
+    const omitted = parseOmittedTypes();
+    const start = parseDateOrNull(startDateEl.value);
+    const end = parseDateOrNull(endDateEl.value);
+
+    const lineWidth = Math.max(1, Math.min(10, Number(lineWidthEl.value) || 2));
+    const lineOpacity = Math.max(0.1, Math.min(1.0, Number(lineOpacityEl.value) || 0.75));
+
+    const perfMode = perfModeEl.checked;
+    const omitSingles = omitSinglePointEl.checked;
+    const maxPoints = Math.max(100, Number(maxPointsEl.value) || 2000);
+
+    clearAll();
+
+    // Waypoints
+    addWaypointsToMap(extractWaypoints(doc, start, end));
+
+    const gpx = doc.documentElement;
+
+    // IMPORTANT: do NOT restrict to direct children; merged files may reorder/indent, but <trk> are still elements.
+    // Using getElementsByTagNameNS ensures we get all <trk> regardless of placement.
+    const tracks = Array.from(gpx.getElementsByTagNameNS("*", "trk"));
+
+    let tracksIn = 0, segsIn = 0, ptsIn = 0;
+    const bounds = L.latLngBounds();
+
+    for (const trk of tracks) {
+      const tRaw = directChildText(trk, "type");
+      const tKey = (tRaw || "unknown").toLowerCase();
+
+      if (omitted.has(tKey)) continue;
+
+      if (start || end) {
+        const ts = firstTrackTime(trk);
+        if (!ts) continue;
+        if (start && ts < start) continue;
+        if (end) {
+          const endPlus = new Date(end.getTime() + 24*60*60*1000 - 1);
+          if (ts > endPlus) continue;
+        }
+      }
+
+      const entry = ensureTypeLayer(tKey);
+      const segs = Array.from(trk.getElementsByTagNameNS("*", "trkseg"));
+
+      let trackHadAny = false;
+
+      for (const seg of segs) {
+        let latlngs = toLatLngsFromSeg(seg);
+        if (latlngs.length === 0) continue;
+
+        if (perfMode) latlngs = downsampleLatLngs(latlngs, maxPoints);
+
+        if (latlngs.length >= 2) {
+          const line = L.polyline(latlngs, { color: entry.color, weight: lineWidth, opacity: lineOpacity });
+          entry.group.addLayer(line);
+          segsIn += 1;
+          ptsIn += latlngs.length;
+          trackHadAny = true;
+        } else if (latlngs.length === 1) {
+          if (omitSingles) {
+            // User requested to omit these (often "stationary"/noisy).
+            continue;
+          }
+          // Single-point segment: draw as a small dot (kept deliberately small).
+          const dot = L.circleMarker(latlngs[0], {
+            radius: 2,
+            weight: 1,
+            color: entry.color,
+            fillColor: entry.color,
+            fillOpacity: 0.9,
+            opacity: lineOpacity
+          });
+          entry.group.addLayer(dot);
+          segsIn += 1;
+          ptsIn += 1;
+          trackHadAny = true;
+        }
+
+        for (const ll of latlngs) bounds.extend(ll);
+      }
+
+      if (trackHadAny) {
+        tracksIn += 1;
+        entry.countTracks += 1;
+        entry.countSegs += segs.length;
+        entry.countPts += 0; // kept for possible future use
+      }
+    }
+
+    trkCountEl.textContent = String(tracksIn);
+    segCountEl.textContent = String(segsIn);
+    ptCountEl.textContent = String(ptsIn);
+
+    rebuildLegend();
+
+    if (!tracksIn && !(Number(wptCountEl.textContent) > 0)) {
+      setStatus("Nothing rendered (all filtered out or empty).", "status-warn");
+      return;
+    }
+
+    setStatus(`Rendered ${tracksIn} tracks.`, "status-ok");
+
+    if (bounds.isValid()) map.fitBounds(bounds.pad(0.08));
+  }
+
+  // Wiring
+  gpxFileEl.addEventListener("change", () => {
+    const hasFile = !!(gpxFileEl.files && gpxFileEl.files[0]);
+    renderBtn.disabled = !hasFile;
+    clearBtn.disabled = !hasFile;
+    setStatus(hasFile ? "Ready. Click Render." : "Select a GPX file.", hasFile ? "status-ok" : "");
+  });
+
+  renderBtn.addEventListener("click", async () => {
+    try {
+      renderBtn.disabled = true;
+      await render();
+    } catch (e) {
+      console.error(e);
+      setStatus(`Failed: ${e.message || e}`, "status-err");
+    } finally {
+      renderBtn.disabled = false;
+    }
+  });
+
+  clearBtn.addEventListener("click", () => {
+    clearAll();
+    setStatus("Cleared.", "status-ok");
+  });
+
+  showWptEl.addEventListener("change", applyWaypointLayer);
+  clusterWptEl.addEventListener("change", applyWaypointLayer);
+
+})();
+</script>
+</body>
+</html>

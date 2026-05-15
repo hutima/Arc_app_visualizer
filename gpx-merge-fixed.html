@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>GPX Merger (Preserve Tracks) + Type Filters</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; line-height: 1.4; }
+    h1 { margin: 0 0 8px; }
+    .row { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+    .card { border:1px solid #ddd; border-radius:12px; padding:16px; margin-top:16px; }
+    label { font-weight:600; }
+    input[type="text"]{ padding:8px; border:1px solid #ccc; border-radius:10px; min-width:280px; }
+    button{ padding:10px 14px; border:1px solid #333; background:#fff; border-radius:12px; cursor:pointer; }
+    button:disabled{ opacity:.5; cursor:not-allowed; }
+    .muted{ color:#666; font-size:.95rem; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    ul{ margin:8px 0 0; padding-left:20px; }
+    .ok{ color:#0a6a2b; }
+    .warn{ color:#8a5a00; }
+    .err{ color:#a40000; }
+    .filterBox{ border:1px solid #eee; border-radius:12px; padding:10px; margin-top:8px; max-height:260px; overflow:auto; }
+    .filterRow{ display:flex; gap:10px; align-items:center; padding:4px 0; }
+    .right{ margin-left:auto; }
+    .smallbtn{ padding:6px 10px; border-radius:12px; }
+    .stats{ margin-top:10px; display:flex; flex-wrap:wrap; gap:10px; }
+    .stat{ border:1px solid #eee; border-radius:12px; padding:8px 10px; }
+    textarea{ width:100%; height:200px; padding:10px; border:1px solid #ccc; border-radius:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  </style>
+</head>
+<body>
+  <h1>GPX Merger <span class="muted">(preserve tracks, compatible with visualizer)</span></h1>
+  <p class="muted">
+    This merger <strong>never flattens</strong>. It appends entire <span class="mono">&lt;trk&gt;</span> nodes as-is (keeping each track's
+    <span class="mono">&lt;type&gt;</span>, <span class="mono">&lt;trkseg&gt;</span>, extensions, etc.). It also appends all <span class="mono">&lt;wpt&gt;</span> and <span class="mono">&lt;rte&gt;</span>.
+  </p>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label for="files">GPX files</label><br/>
+        <input id="files" type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml" multiple />
+      </div>
+      <div>
+        <label for="outgpx">Output GPX filename</label><br/>
+        <input id="outgpx" type="text" value="merged.gpx" />
+      </div>
+    </div>
+
+    <div style="margin-top:12px;">
+      <div class="row">
+        <strong>Track type filters</strong>
+        <span class="muted">Types are scanned from selected files.</span>
+        <span class="right"></span>
+        <button id="allBtn" class="smallbtn" disabled>Select all</button>
+        <button id="noneBtn" class="smallbtn" disabled>Select none</button>
+        <button id="defaultBtn" class="smallbtn" disabled>Default (exclude bogus)</button>
+      </div>
+      <div id="typeBox" class="filterBox"><span class="muted">No files selected.</span></div>
+      <div class="muted" style="margin-top:6px;">Tracks with no <span class="mono">&lt;type&gt;</span> appear as <span class="mono">(none)</span>.</div>
+    </div>
+
+    <div class="row" style="margin-top:12px;">
+      <button id="previewBtn" disabled>Preview GPX header</button>
+      <button id="dlBtn" disabled>Download merged GPX</button>
+      <span id="status" class="muted"></span>
+    </div>
+
+    <div id="fileList" class="muted" style="margin-top:10px;"></div>
+
+    <div class="stats" id="stats" style="display:none;">
+      <div class="stat"><strong>Waypoints</strong>: <span id="wptCount" class="mono">0</span></div>
+      <div class="stat"><strong>Tracks included</strong>: <span id="trkInCount" class="mono">0</span></div>
+      <div class="stat"><strong>Tracks excluded</strong>: <span id="trkOutCount" class="mono">0</span></div>
+      <div class="stat"><strong>Segments</strong>: <span id="segCount" class="mono">0</span></div>
+      <div class="stat"><strong>Trackpoints</strong>: <span id="ptCount" class="mono">0</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <strong>Preview</strong>
+      <span class="muted">First ~1200 characters (so you can sanity-check multiple &lt;trk&gt; exist).</span>
+    </div>
+    <textarea id="preview" readonly></textarea>
+  </div>
+
+<script>
+(() => {
+  const filesEl = document.getElementById('files');
+  const outGpxEl = document.getElementById('outgpx');
+  const typeBoxEl = document.getElementById('typeBox');
+  const fileListEl = document.getElementById('fileList');
+  const statusEl = document.getElementById('status');
+  const previewTA = document.getElementById('preview');
+
+  const allBtn = document.getElementById('allBtn');
+  const noneBtn = document.getElementById('noneBtn');
+  const defaultBtn = document.getElementById('defaultBtn');
+
+  const previewBtn = document.getElementById('previewBtn');
+  const dlBtn = document.getElementById('dlBtn');
+
+  const statsWrap = document.getElementById('stats');
+  const wptCountEl = document.getElementById('wptCount');
+  const trkInCountEl = document.getElementById('trkInCount');
+  const trkOutCountEl = document.getElementById('trkOutCount');
+  const segCountEl = document.getElementById('segCount');
+  const ptCountEl  = document.getElementById('ptCount');
+
+  let cached = { filesKey: "", docs: [], types: new Map() };
+
+  function setStatus(msg, cls="muted") {
+    statusEl.className = cls;
+    statusEl.textContent = msg;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+  }
+
+  async function readFileAsText(file) {
+    if (file.text) return await file.text();
+    return await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+      r.readAsText(file);
+    });
+  }
+
+  function parseXml(xmlText, fileName) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlText, "application/xml");
+    const parseError = doc.getElementsByTagName("parsererror")[0];
+    if (parseError) throw new Error(`XML parse error in ${fileName}: ${parseError.textContent.trim()}`);
+    if (doc.documentElement.localName !== "gpx") throw new Error(`${fileName} is not GPX (root is not <gpx>).`);
+    return doc;
+  }
+
+  function serializeXml(doc) {
+    const s = new XMLSerializer().serializeToString(doc);
+    return `<?xml version="1.0" encoding="UTF-8"?>\n${s}\n`;
+  }
+
+  function downloadText(filename, text, mime) {
+    const blob = new Blob([text], { type: mime || "application/gpx+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename || "merged.gpx";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function normalizeFilename(name, ext) {
+    const n = (name || "").trim() || `merged.${ext}`;
+    return n.toLowerCase().endsWith(`.${ext}`) ? n : `${n}.${ext}`;
+  }
+
+  function directChildrenByLocalName(parent, localName) {
+    return Array.from(parent.childNodes).filter(n => n.nodeType === 1 && n.localName === localName);
+  }
+
+  function removeDirectChildrenByLocalName(parent, localName) {
+    for (const el of directChildrenByLocalName(parent, localName)) parent.removeChild(el);
+  }
+
+  function textOfFirstDirectChild(parent, localName) {
+    const el = Array.from(parent.childNodes).find(n => n.nodeType === 1 && n.localName === localName);
+    return el ? (el.textContent || "").trim() : "";
+  }
+
+  function cloneGpxShellFromFirstDoc(firstDoc) {
+    // Preserve namespaces/attrs/metadata from first file, but rebuild content lists.
+    const outDoc = document.implementation.createDocument(null, null, null);
+    const importedGpx = outDoc.importNode(firstDoc.documentElement, true);
+    outDoc.appendChild(importedGpx);
+    removeDirectChildrenByLocalName(importedGpx, "wpt");
+    removeDirectChildrenByLocalName(importedGpx, "rte");
+    removeDirectChildrenByLocalName(importedGpx, "trk");
+    return outDoc;
+  }
+
+  function getFilesKey(files) {
+    return files.map(f => `${f.name}:${f.size}:${f.lastModified}`).join("|");
+  }
+
+  function renderFileList(files) {
+    if (!files.length) { fileListEl.innerHTML = ""; return; }
+    const items = files.map(f => `<li><span class="mono">${escapeHtml(f.name)}</span> (${f.size.toLocaleString()} bytes)</li>`).join("");
+    fileListEl.innerHTML = `<div><strong>Selected files</strong><ul>${items}</ul></div>`;
+  }
+
+  function renderTypeCheckboxes(typeMap) {
+    if (typeMap.size === 0) {
+      typeBoxEl.innerHTML = `<span class="muted">No tracks found in selected files.</span>`;
+      return;
+    }
+
+    const entries = Array.from(typeMap.entries()).sort((a,b) => (b[1]-a[1]) || a[0].localeCompare(b[0]));
+
+    // Build DOM safely (no HTML-escaped attribute mismatch surprises)
+    typeBoxEl.innerHTML = "";
+    for (const [type, count] of entries) {
+      const row = document.createElement("div");
+      row.className = "filterRow";
+
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.className = "typeCb";
+      cb.dataset.type = type;
+
+      // default: include everything except bogus
+      cb.checked = (String(type).toLowerCase() !== "bogus");
+
+      const label = document.createElement("label");
+      label.className = "mono";
+      label.textContent = (type === "" ? "(none)" : type);
+
+      const right = document.createElement("span");
+      right.className = "right muted";
+      right.innerHTML = `tracks: <span class="mono">${count}</span>`;
+
+      row.appendChild(cb);
+      row.appendChild(label);
+      row.appendChild(right);
+      typeBoxEl.appendChild(row);
+    }
+  }
+
+  function getSelectedTypesSet() {
+    const cbs = Array.from(document.querySelectorAll(".typeCb"));
+    const selected = new Set();
+    for (const cb of cbs) if (cb.checked) selected.add(cb.dataset.type || "");
+    return selected;
+  }
+
+  function applyPreset(mode) {
+    const cbs = Array.from(document.querySelectorAll(".typeCb"));
+    for (const cb of cbs) {
+      const t = (cb.dataset.type || "");
+      const tl = t.toLowerCase();
+      if (mode === "all") cb.checked = true;
+      if (mode === "none") cb.checked = false;
+      if (mode === "default") cb.checked = (tl !== "bogus");
+    }
+  }
+
+  function showStats(stats) {
+    statsWrap.style.display = "flex";
+    wptCountEl.textContent = String(stats.wpts);
+    trkInCountEl.textContent = String(stats.trkIn);
+    trkOutCountEl.textContent = String(stats.trkOut);
+    segCountEl.textContent = String(stats.segs);
+    ptCountEl.textContent  = String(stats.pts);
+  }
+
+  function computeCounts(outDoc) {
+    return {
+      wpts: outDoc.getElementsByTagNameNS("*", "wpt").length,
+      segs: outDoc.getElementsByTagNameNS("*", "trkseg").length,
+      pts:  outDoc.getElementsByTagNameNS("*", "trkpt").length
+    };
+  }
+
+  async function analyzeFiles(files) {
+    const key = getFilesKey(files);
+    if (cached.filesKey === key && cached.docs.length) return cached;
+
+    setStatus("Reading & scanning files…", "ok");
+    const texts = await Promise.all(files.map(f => readFileAsText(f)));
+    const docs = texts.map((txt, i) => parseXml(txt, files[i].name));
+
+    const typeMap = new Map();
+    for (const d of docs) {
+      const gpx = d.documentElement;
+      for (const trk of directChildrenByLocalName(gpx, "trk")) {
+        const t = textOfFirstDirectChild(trk, "type"); // "" if missing
+        typeMap.set(t, (typeMap.get(t) || 0) + 1);
+      }
+    }
+
+    cached = { filesKey: key, docs, types: typeMap };
+    return cached;
+  }
+
+  function mergePreserveTracks(docs, selectedTypes) {
+    const outDoc = cloneGpxShellFromFirstDoc(docs[0]);
+    const outGpx = outDoc.documentElement;
+
+    let trkIn = 0, trkOut = 0;
+
+    for (const d of docs) {
+      const gpx = d.documentElement;
+
+      for (const wpt of directChildrenByLocalName(gpx, "wpt")) outGpx.appendChild(outDoc.importNode(wpt, true));
+      for (const rte of directChildrenByLocalName(gpx, "rte")) outGpx.appendChild(outDoc.importNode(rte, true));
+
+      for (const trk of directChildrenByLocalName(gpx, "trk")) {
+        const t = textOfFirstDirectChild(trk, "type");
+        if (selectedTypes.has(t)) {
+          outGpx.appendChild(outDoc.importNode(trk, true)); // <-- preserves each track individually
+          trkIn++;
+        } else {
+          trkOut++;
+        }
+      }
+    }
+
+    const counts = computeCounts(outDoc);
+    return { xml: serializeXml(outDoc), stats: { wpts: counts.wpts, segs: counts.segs, pts: counts.pts, trkIn, trkOut } };
+  }
+
+  filesEl.addEventListener("change", async () => {
+    const files = filesEl.files ? Array.from(filesEl.files) : [];
+    renderFileList(files);
+
+    previewTA.value = "";
+    statsWrap.style.display = "none";
+
+    const enabled = files.length >= 1;
+    previewBtn.disabled = !enabled;
+    dlBtn.disabled = !enabled;
+    allBtn.disabled = !enabled;
+    noneBtn.disabled = !enabled;
+    defaultBtn.disabled = !enabled;
+
+    if (!enabled) {
+      typeBoxEl.innerHTML = `<span class="muted">No files selected.</span>`;
+      setStatus("Select one or more GPX files.");
+      return;
+    }
+
+    try {
+      const { types } = await analyzeFiles(files);
+      renderTypeCheckboxes(types);
+      setStatus("Ready. Tracks will remain separate in the output.", "ok");
+    } catch (e) {
+      console.error(e);
+      setStatus(String(e.message || e), "err");
+      typeBoxEl.innerHTML = `<span class="err">Failed to parse one or more files.</span>`;
+    }
+  });
+
+  allBtn.addEventListener("click", () => applyPreset("all"));
+  noneBtn.addEventListener("click", () => applyPreset("none"));
+  defaultBtn.addEventListener("click", () => applyPreset("default"));
+
+  previewBtn.addEventListener("click", async () => {
+    try {
+      const files = filesEl.files ? Array.from(filesEl.files) : [];
+      const { docs } = await analyzeFiles(files);
+      const selectedTypes = getSelectedTypesSet();
+
+      setStatus("Merging…", "ok");
+      const merged = mergePreserveTracks(docs, selectedTypes);
+      previewTA.value = merged.xml.slice(0, 1200) + (merged.xml.length > 1200 ? "\n…(truncated)…" : "");
+      showStats(merged.stats);
+
+      // quick sanity hint: count <trk> occurrences in preview range
+      setStatus("Preview ready. Download to use in visualizer.", "ok");
+    } catch (e) {
+      console.error(e);
+      setStatus(String(e.message || e), "err");
+    }
+  });
+
+  dlBtn.addEventListener("click", async () => {
+    try {
+      const files = filesEl.files ? Array.from(filesEl.files) : [];
+      const { docs } = await analyzeFiles(files);
+      const selectedTypes = getSelectedTypesSet();
+
+      setStatus("Building merged GPX…", "ok");
+      const merged = mergePreserveTracks(docs, selectedTypes);
+
+      const fn = normalizeFilename(outGpxEl.value, "gpx");
+      downloadText(fn, merged.xml, "application/gpx+xml;charset=utf-8");
+      showStats(merged.stats);
+
+      setStatus("Downloaded merged GPX (tracks preserved).", "ok");
+    } catch (e) {
+      console.error(e);
+      setStatus(String(e.message || e), "err");
+    }
+  });
+
+  setStatus("Select one or more GPX files.");
+})();
+</script>
+</body>
+</html>
