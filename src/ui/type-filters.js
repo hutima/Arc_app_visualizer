@@ -7,24 +7,32 @@ function escapeHtml(s) {
 }
 
 export function createTypeFilters(rootEl, store, layerManager) {
+  let typeColors = {};
+
+  async function refreshColors() {
+    typeColors = await window.api.listTypeColors();
+  }
+
+  function colorOf(t) {
+    return typeColors[t] || colorForType(t);
+  }
+
   function render() {
     const types = store.listTypes();
     if (!types.length) {
       rootEl.innerHTML = `<span class="muted">Load a GPX file to see type toggles.</span>`;
       return;
     }
-    const counts = layerManager.countsByType();
     const rows = types.map(t => {
-      const c = counts.get(t) || { tracks: 0, segs: 0, color: colorForType(t) };
+      const color = colorOf(t);
       const id = `tf_${btoa(unescape(encodeURIComponent(t || "_"))).replaceAll("=","")}`;
       const checked = store.isTypeVisible(t);
       return `
         <div class="typeRow">
           <input type="checkbox" id="${id}" data-type="${escapeHtml(t)}" ${checked ? "checked" : ""}>
-          <span class="swatch" style="background:${c.color}"></span>
+          <span class="swatch" style="background:${color}"></span>
           <label for="${id}" class="mono">${escapeHtml(t || "(none)")}</label>
-          <input type="color" class="typeColor" data-type="${escapeHtml(t)}" value="${c.color}">
-          <span class="muted tiny">trk ${c.tracks}</span>
+          <input type="color" class="typeColor" data-type="${escapeHtml(t)}" value="${color}">
         </div>`;
     }).join("");
     rootEl.innerHTML = `
@@ -47,7 +55,9 @@ export function createTypeFilters(rootEl, store, layerManager) {
     });
     rootEl.querySelectorAll(".typeColor").forEach(cp => {
       cp.addEventListener("input", e => {
-        layerManager.setTypeColor(e.target.dataset.type, e.target.value);
+        const type = e.target.dataset.type;
+        typeColors[type] = e.target.value;
+        layerManager.setTypeColor(type, e.target.value);
         const sw = e.target.parentElement.querySelector(".swatch");
         if (sw) sw.style.background = e.target.value;
       });
@@ -55,8 +65,7 @@ export function createTypeFilters(rootEl, store, layerManager) {
   }
 
   store.bus.on(store.EVT.typesChanged, render);
-  store.bus.on(store.EVT.sourceAdded, render);
-  store.bus.on(store.EVT.sourceRemoved, render);
-  render();
-  return { render };
+  store.bus.on(store.EVT.sourcesChanged, render);
+  refreshColors().then(render);
+  return { render, refreshColors };
 }

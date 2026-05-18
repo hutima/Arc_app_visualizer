@@ -1,13 +1,11 @@
-// Trigger a browser download of a text payload.
+// Renderer-side export shim. Streaming GPX serialization happens in the
+// main process - see electron/gpx-export.js. Here we just trigger the IPC
+// calls and surface result paths back to the UI.
 
-export function downloadText(filename, text, mime = "application/gpx+xml;charset=utf-8") {
-  const blob = new Blob([text], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename || "export.gpx";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+export async function exportMerged(sourceIds) {
+  return await window.api.exportMerged(sourceIds);
+}
+
+export async function exportPerFile(sourceIds) {
+  return await window.api.exportPerFile(sourceIds);
 }

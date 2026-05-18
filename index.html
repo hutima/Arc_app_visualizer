@@ -2,12 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>ARC GPX Visualizer</title>
   <meta name="theme-color" content="#0f1115" />
-  <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="icon" href="./icons/icon-192.png" />
-  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
 
   <link rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -27,10 +23,10 @@
 
       <div class="card">
         <h2>Import</h2>
-        <input id="gpxInput" type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml" multiple />
-        <div class="row" style="margin-top:8px;">
+        <div class="row">
+          <button id="importBtn">Add GPX files...</button>
           <button id="fitBtn">Fit map</button>
-          <button id="clearBtn">Clear all</button>
+          <button id="clearBtn">Clear library</button>
         </div>
       </div>
 
@@ -42,11 +38,6 @@
       <div class="card">
         <h2>Activity types</h2>
         <div id="typeFilters"></div>
-      </div>
-
-      <div class="card">
-        <h2>Canonical paths</h2>
-        <div id="canonicalCard"></div>
       </div>
 
       <div class="card">
@@ -71,7 +62,8 @@
           <button id="exportPerFileBtn">Per-file round trip</button>
         </div>
         <div class="muted tiny" style="margin-top:6px;">
-          Merged keeps each track as a separate &lt;trk&gt; node. Per-file round-trip re-serializes each source, useful for verifying edits.
+          Merged emits a single GPX with every track preserved as its own &lt;trk&gt; node.
+          Per-file writes one round-tripped file per source to a folder you choose.
         </div>
       </div>
 

@@ -1,0 +1,43 @@
+{
+  "name": "arc-gpx-visualizer",
+  "version": "0.2.0",
+  "description": "Desktop GPX visualizer for ARC Editor exports, backed by a local SQLite library.",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "postinstall": "electron-builder install-app-deps",
+    "build:mac": "electron-builder --mac --arm64 --x64",
+    "build:mac-arm": "electron-builder --mac --arm64"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.5.0",
+    "sax": "^1.4.1"
+  },
+  "devDependencies": {
+    "electron": "^32.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.hutima.arc-gpx-visualizer",
+    "productName": "ARC GPX Visualizer",
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "styles/**/*",
+      "icons/**/*",
+      "index.html",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] }
+      ],
+      "icon": "icons/icon-512.png"
+    },
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
+    ]
+  }
+}

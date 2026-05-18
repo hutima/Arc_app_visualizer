@@ -12,23 +12,21 @@ export function createSourceList(rootEl, store) {
       return;
     }
     rootEl.innerHTML = sources.map(s => {
-      const wpt = s.waypoints.length;
-      const trk = s.tracks.length;
-      const seg = s.tracks.reduce((a, t) => a + t.segments.length, 0);
       const visible = store.isSourceVisible(s.id);
+      const counts = `trk ${s.trackCount} - seg ${s.segmentCount} - pts ${(s.pointCount || 0).toLocaleString()} - wpt ${s.waypointCount}`;
       return `
-        <div class="srcRow" data-id="${escapeHtml(s.id)}">
+        <div class="srcRow" data-id="${s.id}">
           <input type="checkbox" class="srcToggle" ${visible ? "checked" : ""}>
           <div class="srcMeta">
             <div class="srcName" title="${escapeHtml(s.filename)}">${escapeHtml(s.filename)}</div>
-            <div class="srcCounts muted">trk ${trk} - seg ${seg} - wpt ${wpt}</div>
+            <div class="srcCounts muted">${counts}</div>
           </div>
           <button class="srcRemove" title="Remove">x</button>
         </div>`;
     }).join("");
 
     rootEl.querySelectorAll(".srcRow").forEach(row => {
-      const id = row.dataset.id;
+      const id = Number(row.dataset.id);
       row.querySelector(".srcToggle").addEventListener("change", e => {
         store.setSourceVisible(id, e.target.checked);
       });
@@ -40,6 +38,7 @@ export function createSourceList(rootEl, store) {
 
   store.bus.on(store.EVT.sourceAdded, render);
   store.bus.on(store.EVT.sourceRemoved, render);
+  store.bus.on(store.EVT.sourcesChanged, render);
   render();
   return { render };
 }

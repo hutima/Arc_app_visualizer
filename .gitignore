@@ -1,0 +1,12 @@
+node_modules/
+dist/
+out/
+*.log
+.DS_Store
+
+# User data and the local SQLite library (never commit your GPX data)
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+library.sqlite*
